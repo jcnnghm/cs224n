@@ -3,6 +3,7 @@ package edu.stanford.nlp.mt.decoder.feat;
 import java.util.List;
 import java.util.ArrayList;
 import java.util.Properties;
+import java.util.TreeSet;
 
 import edu.stanford.nlp.mt.util.FeatureValue;
 import edu.stanford.nlp.mt.util.Featurizable;
@@ -22,12 +23,18 @@ public class MyFeaturizer implements RuleFeaturizer<IString, String> {
 
   private static final String FEATURE_NAME = "SIZE_CHANGE";
   private StanfordCoreNLP pipeline;
+  private StanfordCoreNLP frenchPipeline;
 
   @Override
   public void initialize() {
     Properties props = new Properties();
     props.setProperty("annotators", "tokenize, ssplit, pos");
     pipeline = new StanfordCoreNLP(props);
+
+    Properties frenchProps = new Properties();
+    frenchProps.setProperty("annotators", "tokenize, ssplit, pos");
+    frenchProps.setProperty("pos.model", "french.tagger");
+    frenchPipeline = new StanfordCoreNLP(frenchProps);
   }
 
   @Override
@@ -35,16 +42,32 @@ public class MyFeaturizer implements RuleFeaturizer<IString, String> {
       Featurizable<IString, String> f) {
 
     List<FeatureValue<String>> features = Generics.newLinkedList();
-    features.add(new FeatureValue<String>("bias", 1.0));
 
-    List<String> posTags = getPosTags(f.targetPhrase.toString());
-    for (String pos : posTags) {
-      features.add(new FeatureValue<String>(String.format("POS:%s", pos), 1.0));
-    }
+    List<String> posTags = getPosTags(pipeline, f.targetPhrase.toString());
+    List<String> frenchPosTags = getPosTags(frenchPipeline, f.sourcePhrase.toString());
 
     for (int i=-2; i<posTags.size(); i++) {
-      features.add(new FeatureValue<String>(String.format("DONE_POS:%s:%s:%s", getPos(posTags, i), getPos(posTags, i+1), getPos(posTags, i+2)), 1.0));
+      if (i>=0) features.add(new FeatureValue<String>(String.format("TARGET_POS:%s", getPos(posTags, i)), 1.0));
+      if (i>=-1) features.add(new FeatureValue<String>(String.format("TARGET_POS_BIGRAM:%s:%s", getPos(posTags, i), getPos(posTags, i+1)), 1.0));
+      features.add(new FeatureValue<String>(String.format("TARGET_POS_TRIGRAM:%s:%s:%s", getPos(posTags, i), getPos(posTags, i+1), getPos(posTags, i+2)), 1.0));
     }
+
+    TreeSet<String> englishTags = new TreeSet<String>(posTags);
+    TreeSet<String> frenchTags = new TreeSet<String>(frenchPosTags);
+
+    for (String englishTag : englishTags) {
+      if (frenchTags.contains(englishTag)) {
+        features.add(new FeatureValue<String>(String.format("POS_MATCH:%s", englishTag), 1.0));
+      } else {
+        features.add(new FeatureValue<String>(String.format("POS_ETOF_MISMATCH:%s", englishTag), 1.0));
+      }
+    }
+    for (String frenchTag : frenchTags) {
+      if (!englishTags.contains(frenchTag)) {
+        features.add(new FeatureValue<String>(String.format("POS_FTOE_MISMATCH:%s", frenchTag), 1.0));
+      }
+    }
+
 
     /*
     int targetSize = f.targetPhrase.size();
@@ -75,7 +98,7 @@ public class MyFeaturizer implements RuleFeaturizer<IString, String> {
     return posTags.get(index);
   }
 
-  private List<String> getPosTags(String phrase) {
+  private List<String> getPosTags(StanfordCoreNLP pipeline, String phrase) {
     ArrayList<String> partsOfSpeech = new ArrayList<String>();
     Annotation document = new Annotation(phrase);
     pipeline.annotate(document);
