@@ -32,6 +32,9 @@
       <fileset dir="${env.PHRASAL}">
         <include name="*.jar"/>
       </fileset>
+      <fileset dir="${env.CORENLP}">
+        <include name="*.jar"/>
+      </fileset>
     </path>
   </target>
 
