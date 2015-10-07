@@ -6,7 +6,7 @@
 % Copyright (C) 1985, all rights reserved.
 % Modifications Copyright 1988, Peter F. Patel-Schneider
 % Further modifictions by Stuart Shieber, 1991, and Fernando Pereira, 1992.
-% Copying of this file is authorized only if either
+% Copying of this file is authorized only if eitherw
 % (1) you make absolutely no changes to your copy, including name, or
 % (2) if you do make changes, you name it something other than
 % btxbst.doc, plain.bst, unsrt.bst, alpha.bst, and abbrv.bst.
