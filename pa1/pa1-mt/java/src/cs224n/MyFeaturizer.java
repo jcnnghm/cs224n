@@ -68,6 +68,8 @@ public class MyFeaturizer implements RuleFeaturizer<IString, String> {
       }
     }
 
+    // The sets are sorted, so this is deterministic
+    features.add(new FeatureValue<String>(String.format("POS_CHANGE:%s:%s", join(englishTags, "|"), join(frenchTags, "|")), 1.0));
 
     /*
     int targetSize = f.targetPhrase.size();
@@ -110,6 +112,17 @@ public class MyFeaturizer implements RuleFeaturizer<IString, String> {
       }
     }
     return partsOfSpeech;
+  }
+
+  private String join(TreeSet<String> strings, String joinString) {
+    StringBuilder builder = new StringBuilder();
+    int count = 0;
+    for (String str : strings) {
+      if (count!=0) builder.append(joinString);
+      builder.append(str);
+      count++;
+    }
+    return builder.toString();
   }
 
   @Override
