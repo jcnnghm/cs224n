@@ -46,52 +46,31 @@ public class MyFeaturizer implements RuleFeaturizer<IString, String> {
     List<String> posTags = getPosTags(pipeline, f.targetPhrase.toString());
     List<String> frenchPosTags = getPosTags(frenchPipeline, f.sourcePhrase.toString());
 
+    features.add(new FeatureValue<String>("bias", 1.0));
+
     for (int i=-2; i<posTags.size(); i++) {
-      if (i>=0) features.add(new FeatureValue<String>(String.format("TARGET_POS:%s", getPos(posTags, i)), 1.0));
-      if (i>=-1) features.add(new FeatureValue<String>(String.format("TARGET_POS_BIGRAM:%s:%s", getPos(posTags, i), getPos(posTags, i+1)), 1.0));
-      features.add(new FeatureValue<String>(String.format("TARGET_POS_TRIGRAM:%s:%s:%s", getPos(posTags, i), getPos(posTags, i+1), getPos(posTags, i+2)), 1.0));
+      if (i>=0) addFeature(features, String.format("TARGET_POS:%s", getPos(posTags, i)));
+      if (i>=-1) addFeature(features, String.format("TARGET_POS_BIGRAM:%s:%s", getPos(posTags, i), getPos(posTags, i + 1)));
+      addFeature(features, String.format("TARGET_POS_TRIGRAM:%s:%s:%s", getPos(posTags, i), getPos(posTags, i + 1), getPos(posTags, i + 2)));
     }
 
     TreeSet<String> englishTags = new TreeSet<String>(posTags);
     TreeSet<String> frenchTags = new TreeSet<String>(frenchPosTags);
 
     for (String englishTag : englishTags) {
-      if (frenchTags.contains(englishTag)) {
-        features.add(new FeatureValue<String>(String.format("POS_MATCH:%s", englishTag), 1.0));
-      } else {
-        features.add(new FeatureValue<String>(String.format("POS_ETOF_MISMATCH:%s", englishTag), 1.0));
-      }
-    }
-    for (String frenchTag : frenchTags) {
-      if (!englishTags.contains(frenchTag)) {
-        features.add(new FeatureValue<String>(String.format("POS_FTOE_MISMATCH:%s", frenchTag), 1.0));
+      for (String frenchTag : frenchTags) {
+        addFeature(features, String.format("POS_CO_OCCUR:%s:%s", englishTag, frenchTag));
       }
     }
 
-    // The sets are sorted, so this is deterministic
-    features.add(new FeatureValue<String>(String.format("POS_CHANGE:%s:%s", join(englishTags, "|"), join(frenchTags, "|")), 1.0));
-
-    /*
-    int targetSize = f.targetPhrase.size();
-    int sourceSize = f.sourcePhrase.size();
-
-    features.add(new FeatureValue<String>(String.format("%s:%d", FEATURE_NAME, targetSize - sourceSize), 1.0));
-
-    int punctuation = 0;
-    for (IString token : f.sourcePhrase) {
-      if (TokenUtils.isPunctuation(token.toString())) {
-        punctuation++;
-      }
-    }
-    for (IString token : f.targetPhrase) {
-      if (TokenUtils.isPunctuation(token.toString())) {
-        punctuation--;
-      }
-    }
-    features.add(new FeatureValue<String>(String.format("PUNCUATION_BALANCE:%d", punctuation), 1.0));
-    */
+    // The sets are sorted, so this order is consistent regardless of appearance order
+    addFeature(features, String.format("POS_CHANGE:%s:%s", join(englishTags, "|"), join(frenchTags, "|")));
 
     return features;
+  }
+
+  private void addFeature(List<FeatureValue<String>> features, String featureName) {
+    features.add(new FeatureValue<String>(featureName, 1.0));
   }
 
   private String getPos(List<String> posTags, int index) {
