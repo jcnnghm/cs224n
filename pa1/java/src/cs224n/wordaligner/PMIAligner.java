@@ -20,11 +20,13 @@ public class PMIAligner extends BaseAligner {
   private CounterMap<String,String> sourceTargetCounts;
   private Counter<String> sourceWordCount;
   private Counter<String> targetWordCount;
+  private double totalSourceWordCount;
+  private double totalTargetWordCount;
 
   @Override
   protected double calculateAlignmentProb(String sourceWord, String targetWord) {
-    double p_source = sourceWordCount.getCount(sourceWord) / sourceWordCount.totalCount();
-    double p_target = targetWordCount.getCount(targetWord) / targetWordCount.totalCount();
+    double p_source = sourceWordCount.getCount(sourceWord) / totalSourceWordCount;
+    double p_target = targetWordCount.getCount(targetWord) / totalTargetWordCount;
 
     Counter<String> counterForSource = sourceTargetCounts.getCounter(sourceWord);
     double p_target_given_source = counterForSource.getCount(targetWord) / counterForSource.totalCount();
@@ -47,5 +49,8 @@ public class PMIAligner extends BaseAligner {
         }
       }
     }
+
+    totalSourceWordCount = sourceWordCount.totalCount();
+    totalTargetWordCount = targetWordCount.totalCount();
   }
 }
