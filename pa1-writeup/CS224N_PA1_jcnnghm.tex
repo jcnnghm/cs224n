@@ -20,6 +20,8 @@
 \usepackage{times}
 \usepackage{url}
 \usepackage{latexsym}
+\usepackage{graphicx}
+\usepackage{amsmath}
 
 %\setlength\titlebox{5cm}
 
@@ -36,347 +38,381 @@
 
 \date{October 6, 2015}
 
+\DeclareMathOperator*{\argmax}{arg\,max}
+
 \begin{document}
 \maketitle
 \begin{abstract}
   In programming assignment 1, I implemented a pointwise mutual
   information (PMI) word aligner, as well as IBM Model 1 and
   IBM Model 2 word aligners.  The PMI Aligner achieved an AER of
-  \textbf{TODO}, while Model 1 and Model 2 achieved \textbf{TODO}
-  and \textbf{TODO} respectively.  In the second part of the assignment,
+  0.6837, while Model 1 and Model 2 achieved 0.4314
+  and 0.3775 respectively.  In the second part of the assignment,
   I implemented a feature for Phrasal which was able to achieve a
-  \textbf{TODO} BLEU score.
+  15.761 average BLEU score.
 \end{abstract}
 
 \section{Part 1}
 
-Doing stuff in general.
+\begin{table*}
+  \begin{center}
+    \begin{tabular}{ l c c c }
+      \hline
+      & French-English & Hindi-English & Chinese-English \\
+      \hline
+      PMI     & 0.6837 & 0.8376 & 0.8444 \\
+      Model 1 & 0.4314 & 0.5838 & 0.6534 \\
+      Model 2 & 0.3775 & 0.5901 & 0.6238 \\
+      \hline
+    \end{tabular}
+  \end{center}
+  \caption{AER results for development set.}
+  \label{table:dev}
+\end{table*}
+
+\begin{table*}
+  \begin{center}
+    \begin{tabular}{ l c c c }
+      \hline
+      & French-English & Hindi-English & Chinese-English \\
+      \hline
+      PMI     & 0.6215 & 0.8309 & 0.8519 \\
+      Model 1 & 0.3994 & 0.5473 & 0.6559 \\
+      Model 2 & 0.3265 & 0.5651 & 0.6435 \\
+      \hline
+    \end{tabular}
+  \end{center}
+  \caption{AER results for test set.}
+  \label{table:test}
+\end{table*}
+
+In Part 1, I implemented PMI and IBM Model 1 and IBM Model 2.
+AER results for all three models, for French-English,
+Hindi-English, and Chinese-English are available in Table \ref{table:dev}
+and Table \ref{table:test}.  Model 1 and Model 2 consistently outperformed
+PMI.  Model 2 outperformed Model 1 for French-English and Chinese-English,
+but underperformed Model 1 for Hindi-English on both the dev and test sets.
+
+All of my implementations in Part 1 subclass a \texttt{BaseAligner} 
+class that I introduced.  \texttt{BaseAligner} provides an implementation
+of the \texttt{align} method and provides a helper that, when given a \texttt{SentencePair},
+returns a new list containing the target words and a null word, ensuring that the
+placement of the null word is consistent.  The \texttt{align} implementation
+calls the \texttt{calculateAlignmentProb} method which \texttt{BaseAligner}
+defines, with the expectation that subclasses will implement it.  The \texttt{align}
+method aligns source-target word pairs with the highest calculated probability,
+using \texttt{argMax} from \texttt{Counter}.
+\texttt{BaseAligner}
+essentially acts as a framework, allowing the other aligners to implement only
+the code that is unique to that particular alignment model.
 
 \subsection{PMI Aligner}
 
-More Stuff
+The PMI Aligner collects source word counts, target word counts, and
+combined source and target counts in the \texttt{train} method.  Before completing
+training, the model collects a total count for source and target words,
+which is helpful to reduce the \texttt{align} runtime, since collecting these
+counts repeatedly can be expensive.
+
+To calculate alignment probabilities, the following function is used:
+
+$$ a_i = \argmax_{j}\frac{p(f_i, e_j)}{p(f_i)p(e_j)} = \argmax_{j}\frac{p(e_j|f_i)p(f_i)}{p(f_i)p(e_j)} $$
+
+The probabilities are trivially obtained from the counts previously collected.
+
+\subsubsection{Error Analysis}
+
+The PMI Aligner clearly isn't very good.  The aligner tends to both align
+too many words to a word, and align words to completely wrong words.  It's not uncommon
+for nearly all of the source words to align to a single target word.  I believe
+one of the issues is tie breaking.  If multiple alignments are equally probable, the 
+\texttt{argMax} function will always choose the same one.  
+
+In addition, rare target words, like
+"affirmative", "essentially" or "growers" tend to have lots of alignments, presumably
+because the low probability in the denominator is causing a higher overall
+alignment probability.
+
+Finally, if a target word appears in the sentence multiple times,
+all of the source words that align to it will align to the same target word, ignoring
+word order differences.
 
 \subsection{IBM Model 1 Aligner}
 
-Even more stuff.
+The \texttt{IBMModel1Aligner} code is very simple, with most of the complexity pushed into
+the \texttt{Model1ExpectationMaximizer} helper, which deals with the EM algorithm and
+initial setup.  This design makes it easier for the IBM Model 2 code to initialize with the output
+of IBM Model 1, and to share the same general EM algorithm.  
+
+The \texttt{Model1ExpectationMaximizer} is initialized with uniform $ t(f_i|e_j) $ 
+probabilities.  During each iteration of my algorithm, I update the count 
+$ C(f_i|e_j) $
+by adding $ \delta(k, i, j) $, where 
+$ \delta(k, i, j) = \frac{t(f_i^k|e_j^k)}{\sum_{j=0}^{l_k}t(f_i^k|e_j^k)} $ 
+for every source-target word pair in each sentence pair $ k $ (algorithm is Collins Figure 4).
+To improve the runtime efficiency, I calculate the divisor first, outside of the loop.
+At the end of each iteration, I normalize the counts.
+
+I run my algorithm for 10 iterations, because as can be seen in Table \ref{table:model1aer}
+and Figure \ref{figure:model1aer} the rate of improvement of the AER is fairly flat at that
+point.
+
+The distortion probabilities in Model 1 are uniform, so I used
+$ a_i = \argmax_{j\in{0..l}} t(f_i|e_j) $ to calculate alignments after the model is
+trained. 
+
+\begin{table}
+  \begin{center}
+    \begin{tabular}{ l l }
+      \hline
+      Iteration & AER \\
+      \hline
+        1  & 0.6989 \\
+        2  & 0.4772 \\
+        3  & 0.4487 \\
+        4  & 0.4382 \\
+        5  & 0.4362 \\
+        6  & 0.4381 \\
+        7  & 0.4314 \\
+        8  & 0.4305 \\
+        9  & 0.4314 \\
+        10 & 0.4314 \\
+      \hline
+    \end{tabular}
+  \end{center}
+  \caption{Model 1 AER}
+  \label{table:model1aer}
+\end{table}
+
+\begin{figure}[t]
+\includegraphics[width=9cm]{model1}
+\centering
+\caption{Model 1 - AER and Iterations}
+\label{figure:model1aer}
+\end{figure}
+
+\subsubsection{Error Analysis}
+
+Model 1 produces much more reasonable alignments than PMI.  One of the most obvious
+weaknesses that remains is alignments with repeated source words.  Again, because of
+the way \texttt{argMax} resolves ties, all repeated source words will align with the
+same target word.  This can make it appear that a sentence with three commas in French,
+will only have a single comma in English.  In the absence of repeated words (or 
+interchangeable words), the model seems to cope well with word order differences.  It appears
+more common to align too many words to a word, rather than completely wrong alignments.
+
+There is some garbage collection appearing, with the abbreviation "Mr." aligning
+to the period.  Both "M." and "Monsieur" appear in the same sentence, so it's possible
+that the probability of aligning "Mr." with french translations is relatively spread out,
+while the period appears in most every sentence that "Mr." does.
+
 
 \subsection{IBM Model 2 Aligner}
 
-Yet more.
+The \texttt{IBMModel2Aligner} code is very similar to the 
+IBM Model 1 code, with the main differences being an updated alignment probability
+function to include distortions, as well as running IBM Model 1 first and using
+the resulting $ t $ values to initialize Model 2.  
 
-\section{Part 2 - Phrasal Feature}
+Again, most of the complexity is pushed into
+the \texttt{Model2ExpectationMaximizer} helper.  The helper re-uses the Model 1
+EM code, updating the probabilities and counts to include distortions.  I implemented
+a method \texttt{getQKey} to manage building keys for the $ q $ probabilities, 
+to make it simpler to maintain a consistent index order. 
 
+The \texttt{Model2ExpectationMaximizer} is initialized with $ t(f_i|e_j) $ 
+from running the \texttt{Model1ExpectationMaximizer}.  $ q(j|i,l,m) $ is 
+initialized uniformly.
+During each iteration of my algorithm, I update the counts 
+$ C(f_i|e_j) $ and $ C(f|i,l,m) $
+by adding $ \delta(k, i, j) $ to each, where 
+$ \delta(k, i, j) = \frac{q(j|i,l_k,m_k)t(f_i^k|e_j^k)}{\sum_{j=0}^{l_k}q(j|i,l_k,m_k)t(f_i^k|e_j^k)} $ 
+for every source-target word pair in each sentence pair $ k $ (algorithm is Collins Figure 2).
+As in Model 1, I calculate the divisor first, outside of the loop.
+At the end of each iteration, I normalize both counts.
 
-\section{General Instructions}
+I run my algorithm for 10 iterations, because as can be seen in Table \ref{table:model2aer}
+and Figure \ref{figure:model2aer} the rate of improvement of the AER is fairly flat at that
+point.
 
-Manuscripts must be in two-column format.  Exceptions to the
-two-column format include the title, authors' names and complete
-addresses, which must be centered at the top of the first page, and
-any full-width figures or tables (see the guidelines in
-Subsection~\ref{ssec:first}). {\bf Type single-spaced.}  Start all
-pages directly under the top margin. See the guidelines later
-regarding formatting the first page.  The manuscript should be
-printed single-sided and its length
-should not exceed the maximum page limit described in Section~\ref{sec:length}.
-Do not number the pages.
+To calculate alignments after the model is trained, I used 
+$ a_i = \argmax_{j\in{0..l}} (q(j|i,l,m) \times t(f_i|e_j)) $.
 
+\subsubsection{Error Analysis}
 
-\subsection{Electronically-available resources}
+Model 2 offers subtle improvements over Model 1, but nothing nearly as dramatic as the move
+from PMI to Model 1.  Model 2 is definitely still experiencing some garbage collection,
+where, for example, many function words align to the English word ruling, but none with the
+French word decision.  It definitely still appears that there's a tendency for too many
+words to align with a single word.
 
-We strongly prefer that you prepare your PDF files using \LaTeX\ with
-the official ACL 2015 style file (acl2015.sty) and bibliography style
-(acl.bst). These files are available at
-\url{http://acl2015.org}. You will also find the document
-you are currently reading (acl2015.pdf) and its \LaTeX\ source code
-(acl2015.tex) on this website.
+The addition of distortion probabilities appears to have helped with some of the multiple
+alignments, and it appears that most of the duplicate words now align to a word relatively
+close to them.  It would be interesting to weight the distortion and translation probabilities,
+to see what kind of impact could be had by tuning their relative importance.  Examining the 
+Hindi alignments seems to suggest that increasing the importance of the distortion
+probabilities could result in better alignments, since many of the missed alignments are pretty
+far from where they'd be expected to fall on the diagonal.
 
-You can alternatively use Microsoft Word to produce your PDF file. In
-this case, we strongly recommend the use of the Word template file
-(acl2015.dot) on the ACL 2015 website (\url{http://acl2015.org}). 
-If you have an option, we recommend that you use the \LaTeX2e version. 
-If you will be using the Microsoft Word template, we suggest that you 
-anonymize your source file so that the pdf produced does not retain your
-identity.  This can be done by removing any personal information
-from your source document properties.
+Between Model 1 and Model 2, the precision increased from 0.5183 to 0.5758, 
+and the recall from 0.6746 to 0.7219.  This relatively modest increase seems to mirror what
+I have observed intuitively, the alignments are marginally better, but when they're incorrect,
+the issues are very similar to Model 1.
 
-
-
-\subsection{Format of Electronic Manuscript}
-\label{sect:pdf}
-
-For the production of the electronic manuscript you must use Adobe's
-Portable Document Format (PDF). PDF files are usually produced from
-\LaTeX\ using the \textit{pdflatex} command. If your version of
-\LaTeX\ produces Postscript files, you can convert these into PDF
-using \textit{ps2pdf} or \textit{dvipdf}. On Windows, you can also use
-Adobe Distiller to generate PDF.
-
-Please make sure that your PDF file includes all the necessary fonts
-(especially tree diagrams, symbols, and fonts with Asian
-characters). When you print or create the PDF file, there is usually
-an option in your printer setup to include none, all or just
-non-standard fonts.  Please make sure that you select the option of
-including ALL the fonts. \textbf{Before sending it, test your PDF by
-  printing it from a computer different from the one where it was
-  created.} Moreover, some word processors may generate very large PDF
-files, where each page is rendered as an image. Such images may
-reproduce poorly. In this case, try alternative ways to obtain the
-PDF. One way on some systems is to install a driver for a postscript
-printer, send your document to the printer specifying ``Output to a
-file'', then convert the file to PDF.
-
-It is of utmost importance to specify the \textbf{A4 format} (21 cm
-x 29.7 cm) when formatting the paper. When working with
-{\tt dvips}, for instance, one should specify {\tt -t a4}.
-Or using the command \verb|\special{papersize=210mm,297mm}| in the latex
-preamble (directly below the \verb|\usepackage| commands). Then using 
-{\tt dvipdf} and/or {\tt pdflatex} which would make it easier for some.
-
-
-Print-outs of the PDF file on A4 paper should be identical to the
-hardcopy version. If you cannot meet the above requirements about the
-production of your electronic submission, please contact the
-publication chairs as soon as possible.
-
-
-\subsection{Layout}
-\label{ssec:layout}
-
-Format manuscripts two columns to a page, in the manner these
-instructions are formatted. The exact dimensions for a page on A4
-paper are:
-
-\begin{itemize}
-\item Left and right margins: 2.5 cm
-\item Top margin: 2.5 cm
-\item Bottom margin: 2.5 cm
-\item Column width: 7.7 cm
-\item Column height: 24.7 cm
-\item Gap between columns: 0.6 cm
-\end{itemize}
-
-\noindent Papers should not be submitted on any other paper size.
- If you cannot meet the above requirements about the production of 
- your electronic submission, please contact the publication chairs 
- above as soon as possible.
-
-
-\subsection{Fonts}
-
-For reasons of uniformity, Adobe's {\bf Times Roman} font should be
-used. In \LaTeX2e{} this is accomplished by putting
-
-\begin{quote}
-\begin{verbatim}
-\usepackage{times}
-\usepackage{latexsym}
-\end{verbatim}
-\end{quote}
-in the preamble. If Times Roman is unavailable, use {\bf Computer
-  Modern Roman} (\LaTeX2e{}'s default).  Note that the latter is about
-  10\% less dense than Adobe's Times Roman font.
-
-
-\begin{table}[h]
-\begin{center}
-\begin{tabular}{|l|rl|}
-\hline \bf Type of Text & \bf Font Size & \bf Style \\ \hline
-paper title & 15 pt & bold \\
-author names & 12 pt & bold \\
-author affiliation & 12 pt & \\
-the word ``Abstract'' & 12 pt & bold \\
-section titles & 12 pt & bold \\
-document text & 11 pt  &\\
-captions & 11 pt & \\
-abstract text & 10 pt & \\
-bibliography & 10 pt & \\
-footnotes & 9 pt & \\
-\hline
-\end{tabular}
-\end{center}
-\caption{\label{font-table} Font guide. }
+\begin{table}
+  \begin{center}
+    \begin{tabular}{ l l }
+      \hline
+      Iteration & AER \\
+      \hline
+        1  & 0.4607 \\
+        2  & 0.3960 \\
+        3  & 0.3837 \\
+        4  & 0.3775 \\
+        5  & 0.3851 \\
+        6  & 0.3869 \\
+        7  & 0.3841 \\
+        8  & 0.3803 \\
+        9  & 0.3803 \\
+        10 & 0.3775 \\
+      \hline
+    \end{tabular}
+  \end{center}
+  \caption{Model 2 AER}
+  \label{table:model2aer}
 \end{table}
 
-\subsection{The First Page}
-\label{ssec:first}
+\begin{figure}[t]
+\includegraphics[width=9cm]{model2}
+\centering
+\caption{Model 2 - AER and Iterations}
+\label{figure:model2aer}
+\end{figure}
 
-Center the title, author's name(s) and affiliation(s) across both
-columns. Do not use footnotes for affiliations. Do not include the
-paper ID number assigned during the submission process. Use the
-two-column format only when you begin the abstract.
+\section{Part 2 - Phrasal Feature}
+ 
+The feature that I implemented added indicators using parts of speech data
+extracted from the source and target phrases using CoreNLP.  The total number of weights
+learned increased from 10 in the baseline to 6,065.  My measured Phrasal baseline was 
+15.4059, and I measured an increase to 15.7609, a difference of 0.355, over 50 runs.
 
-{\bf Title}: Place the title centered at the top of the first page, in
-a 15-point bold font. (For a complete guide to font sizes and styles,
-see Table~\ref{font-table}) Long titles should be typed on two lines
-without a blank line intervening. Approximately, put the title at 2.5
-cm from the top of the page, followed by a blank line, then the
-author's names(s), and the affiliation on the following line. Do not
-use only initials for given names (middle initials are allowed). Do
-not format surnames in all capitals (e.g., use ``Schlangen'' not
-``SCHLANGEN'').  Do not format title and section headings in all
-capitals as well except for proper names (such as ``BLEU'') that are
-conventionally in all capitals.  The affiliation should contain the
-author's complete address, and if possible, an electronic mail
-address. Start the body of the first page 7.5 cm from the top of the
-page.
+My belief was that some of the target phrases weren't really grammatical, so I thought that
+by comparing parts of speech in the source and target, and learning weights for parts of 
+speech in the target, the system would be able to generalize a little more about
+English sentence structure.
 
-The title, author names and addresses should be completely identical
-to those entered to the electronical paper submission website in order
-to maintain the consistency of author information among all
-publications of the conference. If they are different, the publication
-chairs may resolve the difference without consulting with you; so it
-is in your own interest to double-check that the information is
-consistent.
+\subsection{Features}
 
-{\bf Abstract}: Type the abstract at the beginning of the first
-column. The width of the abstract text should be smaller than the
-width of the columns for the text in the body of the paper by about
-0.6 cm on each side. Center the word {\bf Abstract} in a 12 point bold
-font above the body of the abstract. The abstract should be a concise
-summary of the general thesis and conclusions of the paper. It should
-be no longer than 200 words. The abstract text should be in 10 point font.
+\subsubsection{Bias}
 
-{\bf Text}: Begin typing the main body of the text immediately after
-the abstract, observing the two-column format as shown in 
-the present document. Do not include page numbers.
+I added a simple indicator bias feature to each rule regardless of source or target phrase,
+to act as a constant.  The system learned a weight of $ -0.0572 $ for this feature.  I expected
+the bias to be negative, to counteract the weights that I believed would be learned from
+parts-of-speech co-occurrences.
 
-{\bf Indent} when starting a new paragraph. Use 11 points for text and 
-subsection headings, 12 points for section headings and 15 points for
-the title. 
+\subsection{Target Parts of Speech}
 
-\subsection{Sections}
+I added unigram, bigram, and trigram part of speech indicator features over the target phrase.
+That expectation was that the system could learn in general which English parts of speech
+work well together.
 
-{\bf Headings}: Type and label section and subsection headings in the
-style shown on the present document.  Use numbered sections (Arabic
-numerals) in order to facilitate cross references. Number subsections
-with the section number and the subsection number separated by a dot,
-in Arabic numerals. Do not number subsubsections.
+For example:
 
-{\bf Citations}: Citations within the text appear in parentheses
-as~\cite{Gusfield:97} or, if the author's name appears in the text
-itself, as Gusfield~\shortcite{Gusfield:97}.  Append lowercase letters
-to the year in cases of ambiguity.  Treat double authors as
-in~\cite{Aho:72}, but write as in~\cite{Chandra:81} when more than two
-authors are involved. Collapse multiple citations as
-in~\cite{Gusfield:97,Aho:72}. Also refrain from using full citations
-as sentence constituents. We suggest that instead of
-\begin{quote}
-  ``\cite{Gusfield:97} showed that ...''
-\end{quote}
-you use
-\begin{quote}
-``Gusfield \shortcite{Gusfield:97}   showed that ...''
-\end{quote}
+\begin{verbatim}
+TARGET_POS_TRIGRAM:IN:NNS:IN
+\end{verbatim}
 
-If you are using the provided \LaTeX{} and Bib\TeX{} style files, you
-can use the command \verb|\newcite| to get ``author (year)'' citations.
+\subsubsection{Part of Speech Co-Occurrence}
 
-As reviewing will be double-blind, the submitted version of the papers
-should not include the authors' names and affiliations. Furthermore,
-self-references that reveal the author's identity, e.g.,
-\begin{quote}
-``We previously showed \cite{Gusfield:97} ...''  
-\end{quote}
-should be avoided. Instead, use citations such as 
-\begin{quote}
-``Gusfield \shortcite{Gusfield:97}
-previously showed ... ''
-\end{quote}
+I created an indicator feature pairing every part of speech in the source
+with every part of speech in the target.  The part of speech tags for
+English and French aren't consistent, so this kind of approximates matching
+nouns to nouns, for example.
 
-\textbf{Please do not use anonymous citations} and do not include
-acknowledgements when submitting your papers. Papers that do not
-conform to these requirements may be rejected without review.
+For example:
 
-\textbf{References}: Gather the full set of references together under
-the heading {\bf References}; place the section before any Appendices,
-unless they contain references. Arrange the references alphabetically
-by first author, rather than by order of occurrence in the text.
-Provide as complete a citation as possible, using a consistent format,
-such as the one for {\em Computational Linguistics\/} or the one in the 
-{\em Publication Manual of the American 
-Psychological Association\/}~\cite{APA:83}.  Use of full names for
-authors rather than initials is preferred.  A list of abbreviations
-for common computer science journals can be found in the ACM 
-{\em Computing Reviews\/}~\cite{ACM:83}.
+\begin{verbatim}
+POS_CO_OCCUR:JJ:ADJ
+\end{verbatim}
 
-The \LaTeX{} and Bib\TeX{} style files provided roughly fit the
-American Psychological Association format, allowing regular citations, 
-short citations and multiple citations as described above.
+\subsubsection{Part of Speech Change}
 
-{\bf Appendices}: Appendices, if any, directly follow the text and the
-references (but see above).  Letter them in sequence and provide an
-informative title: {\bf Appendix A. Title of Appendix}.
+This indicator feature outputs sorted part of speech tag sets for both the source
+ and target phrases.  I decided to sort the tags and put them in sets instead of
+ displaying the tags in the order they appeared to avoid over-fitting.
 
-\subsection{Footnotes}
+For example: 
 
-{\bf Footnotes}: Put footnotes at the bottom of the page and use 9
-points text. They may be numbered or referred to by asterisks or other
-symbols.\footnote{This is how a footnote should appear.} Footnotes
-should be separated from the text by a line.\footnote{Note the line
-separating the footnotes from the text.}
+\begin{verbatim}
+POS_CHANGE:DT|IN|VBZ:CLS|DET|ET|P|V
+\end{verbatim}
 
-\subsection{Graphics}
+\subsection{Output Impact}
 
-{\bf Illustrations}: Place figures, tables, and photographs in the
-paper near where they are first discussed, rather than at the end, if
-possible.  Wide illustrations may run across both columns.  Color
-illustrations are discouraged, unless you have verified that  
-they will be understandable when printed in black ink.
+A few examples are highlighted in Table 5
+and Table 6 - in general, where there is improvement,
+the sentence tends to follow more common English-language
+patterns.
 
-{\bf Captions}: Provide a caption for every illustration; number each one
-sequentially in the form:  ``Figure 1. Caption of the Figure.'' ``Table 1.
-Caption of the Table.''  Type the captions of the figures and 
-tables below the body, using 11 point text.
+\begin{table}
+  \begin{center}
+    \begin{tabular}{ l }
+      \hline
+        \textbf{With Feature} \\
+      \hline
+        the gdp of germany has a anticipated growth \\ 
+        0.5 \% , that of france 0.4 \% . \\
+      \hline
+        they have won 1:0 in montenegro and\\
+        celebrating the qualification for 200 million\\
+      \hline
+        in the czech republic , only 23 \% of families\\
+        of my students eat at the same time .\\
+      \hline
+        they are not really mistakes , but the expression\\
+        of an incomprehensible laziness on the part of the\\
+         developers .\\
+      \hline
+    \end{tabular}
+  \end{center}
+  \caption{With Feature Translations}
+\end{table}
 
+\begin{table}
+  \begin{center}
+    \begin{tabular}{ l }
+      \hline
+        \textbf{Baseline} \\
+      \hline
+        the germany 's gdp growth expected 0.5 \% ,\\
+        that of france of 0.4 \% .\\
+      \hline
+        they have won in montenegro 1:0 and celebrating\\
+        qualification for 200 million\\
+      \hline
+        in the czech republic , only 23 \% of families\\
+        of pupils my eat at the same time .\\
+      \hline
+        they are not really mistakes , but the expression\\
+        of an laziness incomprehensible on the part of the\\
+        developers .\\
+      \hline
+    \end{tabular}
+  \end{center}
+  \caption{Baseline Translations}
+\end{table}
 
-\section{XML conversion and supported \LaTeX\ packages}
+\subsection{Error Analysis}
 
-Following ACL 2014 we will also we will attempt to automatically convert 
-your \LaTeX\ source files to publish papers in machine-readable 
-XML with semantic markup in the ACL Anthology, in addition to the 
-traditional PDF format.  This will allow us to create, over the next 
-few years, a growing corpus of scientific text for our own future research, 
-and picks up on recent initiatives on converting ACL papers from earlier 
-years to XML. 
+In evaluating, sometimes it appeared that parts of speech matching had won-out
+over "better" phrases that were previously selected, probably because they
+aren't very common.  On the other hand, it appeared that more natural phrases
+were selected overall, probably preferring grammatically correct uncommon phrases.
 
-We encourage you to submit a ZIP file of your \LaTeX\ sources along
-with the camera-ready version of your paper. We will then convert them
-to XML automatically, using the LaTeXML tool
-(\url{http://dlmf.nist.gov/LaTeXML}). LaTeXML has \emph{bindings} for
-a number of \LaTeX\ packages, including the ACL 2015 stylefile. These
-bindings allow LaTeXML to render the commands from these packages
-correctly in XML. For best results, we encourage you to use the
-packages that are officially supported by LaTeXML, listed at
-\url{http://dlmf.nist.gov/LaTeXML/manual/included.bindings}
-
-
-
-
-
-\section{Translation of non-English Terms}
-
-It is also advised to supplement non-English characters and terms
-with appropriate transliterations and/or translations
-since not all readers understand all such characters and terms.
-Inline transliteration or translation can be represented in
-the order of: original-form transliteration ``translation''.
-
-\section{Length of Submission}
-\label{sec:length}
-
-Long papers may consist of up to 8 pages of content, plus two extra
-pages for references. Short papers may consist of up to 4 pages of
-content, plus two extra pages for references.  Papers that do not
-conform to the specified length and formatting requirements may be
-rejected without review.
-
-
-
-\section*{Acknowledgments}
-
-The acknowledgments should go immediately before the references.  Do
-not number the acknowledgments section. Do not include this section
-when submitting your paper for review.
+I believe the biggest room for improvement would be adding a featurizer that ran
+over the full or partial target sequence, creating parts of speech trigrams there
+as well.  Examining the likelihood of transitions between phrases seems like it would
+be pretty fertile ground.
 
 % include your own bib file like this:
 %\bibliographystyle{acl}
@@ -384,35 +420,12 @@ when submitting your paper for review.
 
 \begin{thebibliography}{}
 
-\bibitem[\protect\citename{Aho and Ullman}1972]{Aho:72}
-Alfred~V. Aho and Jeffrey~D. Ullman.
-\newblock 1972.
-\newblock {\em The Theory of Parsing, Translation and Compiling}, volume~1.
-\newblock Prentice-{Hall}, Englewood Cliffs, NJ.
-
-\bibitem[\protect\citename{{American Psychological Association}}1983]{APA:83}
-{American Psychological Association}.
-\newblock 1983.
-\newblock {\em Publications Manual}.
-\newblock American Psychological Association, Washington, DC.
-
-\bibitem[\protect\citename{{Association for Computing Machinery}}1983]{ACM:83}
-{Association for Computing Machinery}.
-\newblock 1983.
-\newblock {\em Computing Reviews}, 24(11):503--512.
-
-\bibitem[\protect\citename{Chandra \bgroup et al.\egroup }1981]{Chandra:81}
-Ashok~K. Chandra, Dexter~C. Kozen, and Larry~J. Stockmeyer.
-\newblock 1981.
-\newblock Alternation.
-\newblock {\em Journal of the Association for Computing Machinery},
-  28(1):114--133.
-
-\bibitem[\protect\citename{Gusfield}1997]{Gusfield:97}
-Dan Gusfield.
-\newblock 1997.
-\newblock {\em Algorithms on Strings, Trees and Sequences}.
-\newblock Cambridge University Press, Cambridge, UK.
+\bibitem[\protect\citename{Manning}2014]{Manning:14}
+Manning, Christopher D. and  Surdeanu, Mihai  and  Bauer, John  and  Finkel, Jenny  and  Bethard, Steven J. and  McClosky, David.
+\newblock 2014.
+\newblock {The {Stanford} {CoreNLP} Natural Language Processing Toolkit}.
+\newblock {\em Proceedings of 52nd Annual Meeting of the Association for Computational Linguistics: System Demonstrations},
+\newblock pp. 55--60.
 
 \end{thebibliography}
 
